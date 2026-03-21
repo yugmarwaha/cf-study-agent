@@ -71,76 +71,77 @@ export class ChatAgent extends AIChatAgent<Env> {
       model: workersai("@cf/moonshotai/kimi-k2.5", {
         sessionAffinity: this.sessionAffinity
       }),
-      system: `You are a helpful assistant that can understand images. You can check the weather, get the user's timezone, run calculations, and schedule tasks. When users share images, describe what you see and answer questions about them.
+      system: `You are a CS study assistant helping university students understand computer science concepts.
+               You can explain topics clearly, generate practice problems, and help debug conceptual 
+               misunderstandings. Topics you specialize in: data structures, algorithms, operating systems, 
+               computer networks, databases, machine learning, and systems programming. When explaining a 
+               concept:
+                - Start with a simple one-line definition
+                - Give a concrete example
+                - Mention common misconceptions if relevant
 
-${getSchedulePrompt({ date: new Date() })}
+            When generating a practice problem, always include the difficulty level (easy/medium/hard) and the topic tag.
 
-If the user asks to schedule a task, use the schedule tool to schedule the task.`,
+            ${getSchedulePrompt({ date: new Date() })}
+
+            If the user asks to schedule a task, use the schedule tool.`,
       // Prune old tool calls to save tokens on long conversations
       messages: pruneMessages({
         messages: inlineDataUrls(await convertToModelMessages(this.messages)),
         toolCalls: "before-last-2-messages"
       }),
       tools: {
-        // MCP tools from connected servers
         ...mcpTools,
 
-        // Server-side tool: runs automatically on the server
-        getWeather: tool({
-          description: "Get the current weather for a city",
+        generatePracticeQuestion: tool({
+          description:
+            "Generate a practice problem for a given CS topic and difficulty level. Use when the user asks for practice, exercises, or wants to test their knowledge.",
           inputSchema: z.object({
-            city: z.string().describe("City name")
+            topic: z.string().describe("CS topic e.g. binary trees, TCP/IP, SQL joins"),
+            subtopic: z
+              .string()
+              .optional()
+              .describe("Specific subtopic to focus on e.g. AVL rotations, three-way handshake"),
+            difficulty: z.enum(["easy", "medium", "hard"]).describe("Difficulty level"),
+            questionType: z
+              .enum(["conceptual", "coding", "multiple-choice", "short-answer"])
+              .optional()
+              .describe("Type of question to generate")
           }),
-          execute: async ({ city }) => {
-            // Replace with a real weather API in production
-            const conditions = ["sunny", "cloudy", "rainy", "snowy"];
-            const temp = Math.floor(Math.random() * 30) + 5;
+          execute: async ({ topic, subtopic, difficulty, questionType }) => {
             return {
-              city,
-              temperature: temp,
-              condition:
-                conditions[Math.floor(Math.random() * conditions.length)],
-              unit: "celsius"
+              topic,
+              subtopic: subtopic ?? null,
+              difficulty,
+              questionType: questionType ?? "short-answer",
+              format: "Include: problem statement, 1-2 hints (hidden by default), and the expected answer."
             };
           }
         }),
 
-        // Client-side tool: no execute function — the browser handles it
+        explainConcept: tool({
+          description:
+            "Explain a CS concept clearly. Use when the user asks what something is, how it works, or seems confused about a topic.",
+          inputSchema: z.object({
+            concept: z.string().describe("The CS concept to explain e.g. recursion, deadlock, normalization"),
+            depth: z
+              .enum(["brief", "detailed", "eli5"])
+              .optional()
+              .describe("How deep the explanation should go — eli5 for beginners, brief for review, detailed for deep understanding")
+          }),
+          execute: async ({ concept, depth }) => {
+            return {
+              concept,
+              depth: depth ?? "detailed",
+              format: "Provide: 1) one-line definition, 2) concrete example, 3) common misconception if relevant."
+            };
+          }
+        }),
+
         getUserTimezone: tool({
           description:
             "Get the user's timezone from their browser. Use this when you need to know the user's local time.",
           inputSchema: z.object({})
-        }),
-
-        // Approval tool: requires user confirmation before executing
-        calculate: tool({
-          description:
-            "Perform a math calculation with two numbers. Requires user approval for large numbers.",
-          inputSchema: z.object({
-            a: z.number().describe("First number"),
-            b: z.number().describe("Second number"),
-            operator: z
-              .enum(["+", "-", "*", "/", "%"])
-              .describe("Arithmetic operator")
-          }),
-          needsApproval: async ({ a, b }) =>
-            Math.abs(a) > 1000 || Math.abs(b) > 1000,
-          execute: async ({ a, b, operator }) => {
-            const ops: Record<string, (x: number, y: number) => number> = {
-              "+": (x, y) => x + y,
-              "-": (x, y) => x - y,
-              "*": (x, y) => x * y,
-              "/": (x, y) => x / y,
-              "%": (x, y) => x % y
-            };
-            if (operator === "/" && b === 0) {
-              return { error: "Division by zero" };
-            }
-            return {
-              expression: `${a} ${operator} ${b}`,
-              result: ops[operator](a, b)
-            };
-          }
         }),
 
         scheduleTask: tool({
