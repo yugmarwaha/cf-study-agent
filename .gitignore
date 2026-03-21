@@ -146,7 +146,3 @@ dist
 .dev.vars*
 !.dev.vars.example
 !.env.example
-
-# Project-specific
-CLAUDE.md
-PROMPTS.md
